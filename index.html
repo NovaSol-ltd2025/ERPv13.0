@@ -84,6 +84,15 @@
       #supplyReportModal { position: absolute; left: 0; top: 0; width: 100%; background: white; }
       #supplyReportModal .modal-backdrop { display: none !important; }
       #supplyReportModal .d-print-none { display: none !important; visibility: hidden !important; }
+      /* Prevent blank pages */
+      @page { margin: 15mm; size: A4 portrait; }
+      html, body { height: auto !important; overflow: visible !important; }
+      .modal { height: auto !important; overflow: visible !important; }
+      .modal-dialog { height: auto !important; }
+      .modal-dialog-scrollable .modal-body { overflow: visible !important; max-height: none !important; }
+      #supplyReportModal .modal-content { height: auto !important; page-break-inside: auto; }
+      #srTableContainer table { page-break-inside: auto; }
+      #srTableContainer tr { page-break-inside: avoid; page-break-after: auto; }
     }
   </style>
 </head>
@@ -4090,7 +4099,7 @@ window.printSupplyReport = function() {
       <div class="modal-body">
         <!-- Print Header (hidden until print) -->
         <div id="srPrintHeader" style="display:none;" class="text-center mb-3">
-          <h4 class="fw-bold">บริษัท โนวาโซล จำกัด</h4>
+          <h4 class="fw-bold">ห้างหุ้นส่วนจำกัด โนวาโซล</h4>
           <h5>รายงานวัสดุ / สินค้าคงเหลือ</h5>
           <div id="srPrintMeta" class="text-muted small"></div>
           <hr>
