@@ -74,6 +74,11 @@
       #printableArea { position: absolute; left: 0; top: 0; width: 100%; }
       #payslipPrintArea, #payslipPrintArea * { visibility: visible; }
       #payslipPrintArea { position: absolute; left: 0; top: 0; width: 100%; background: white; padding: 20px; }
+      .modal-header, .d-print-none { display: none !important; }
+      .modal { position: static !important; overflow: visible !important; }
+      .modal-dialog { max-width: 100% !important; margin: 0 !important; }
+      .modal-content { border: none !important; box-shadow: none !important; }
+      .modal-body { padding: 0 !important; }
     }
   </style>
 </head>
@@ -390,6 +395,7 @@
               <h5 class="fw-bold"><i class="fas fa-exchange-alt text-primary"></i> รายการรับ / รายการจ่าย</h5>
               <div class="d-flex gap-2 mt-2">
                 <button class="btn btn-primary btn-sm" onclick="openSupplyModal()"><i class="fas fa-plus"></i> บันทึกรายการ</button>
+                <button class="btn btn-sm btn-outline-secondary" onclick="openSupplyReportModal()"><i class="fas fa-file-alt me-1"></i>รายงานวัสดุ</button>
                 <button class="btn btn-outline-secondary btn-sm" onclick="loadData()"><i class="fas fa-sync"></i></button>
               </div>
             </div>
@@ -3936,6 +3942,177 @@ CREATE TABLE IF NOT EXISTS public.discontinued_items (id TEXT PRIMARY KEY, itemN
     Swal.fire('ข้อผิดพลาด', 'ไม่สามารถคัดลอกอัตโนมัติได้ กรุณาดูไฟล์ supabase-schema.sql ในโปรเจกต์', 'error');
   });
 };
+// ==================== SUPPLY REPORT ====================
+let srAllData = [];
+
+window.openSupplyReportModal = async function() {
+  $('#supplyReportModal').modal('show');
+  $('#srKpiRow').html('<div class="col-12 text-center py-3"><div class="spinner-border text-secondary"></div></div>');
+  srAllData = await runGoogle('getSuppliesData').catch(() => []);
+  if (!Array.isArray(srAllData)) srAllData = [];
+
+  // Populate branch filter
+  const branches = [...new Set(srAllData.map(s => s.deliveryLocation || 'สำนักงานใหญ่'))].sort();
+  const bSel = $('#srBranchFilter');
+  bSel.html('<option value="">ทุกสาขา</option>');
+  branches.forEach(b => bSel.append(`<option value="${b}">${b}</option>`));
+
+  // Populate month filter
+  const months = [...new Set(srAllData.map(s => {
+    const d = s.date || s.rawDate || s.requestDate || '';
+    if (d.includes('/')) { const p = d.split('/'); return `${p[2]}-${p[1].padStart(2,'0')}`; }
+    return d.substring(0,7);
+  }).filter(Boolean))].sort().reverse();
+  const mSel = $('#srMonthFilter');
+  mSel.html('<option value="">ทุกเดือน</option>');
+  months.forEach(m => {
+    const [y, mo] = m.split('-');
+    const label = new Date(+y, +mo-1, 1).toLocaleDateString('th-TH', { month: 'long', year: 'numeric' });
+    mSel.append(`<option value="${m}">${label}</option>`);
+  });
+
+  renderSupplyReport();
+};
+
+function getSupplyReportData() {
+  const branch = $('#srBranchFilter').val();
+  const month = $('#srMonthFilter').val();
+  const type = $('#srTypeFilter').val();
+  const search = ($('#srSearch').val() || '').toLowerCase();
+
+  return srAllData.filter(s => {
+    if (branch && (s.deliveryLocation || 'สำนักงานใหญ่') !== branch) return false;
+    if (type && s.actionType !== type) return false;
+    if (search && !(s.itemName || '').toLowerCase().includes(search)) return false;
+    if (month) {
+      const d = s.date || s.rawDate || s.requestDate || '';
+      let ym = '';
+      if (d.includes('/')) { const p = d.split('/'); ym = `${p[2]}-${p[1].padStart(2,'0')}`; }
+      else ym = d.substring(0,7);
+      if (!ym.startsWith(month)) return false;
+    }
+    return true;
+  });
+}
+
+window.renderSupplyReport = function() {
+  const data = getSupplyReportData();
+  const totalIn = data.filter(s => s.actionType==='รับเข้า'||s.actionType==='ยอดยกมา').reduce((s,r) => s + parseFloat(r.itemQuantity||0)*parseFloat(r.unitPrice||0), 0);
+  const totalOut = data.filter(s => s.actionType==='จ่ายออก').reduce((s,r) => s + parseFloat(r.itemQuantity||0)*parseFloat(r.unitPrice||0), 0);
+  const rowCount = data.length;
+
+  $('#srKpiRow').html(`
+    <div class="col-md-4"><div class="card text-center p-2 border-0 bg-success bg-opacity-10">
+      <div class="text-success fw-bold">${totalIn.toLocaleString('th-TH')} ฿</div><div class="text-muted small">มูลค่ารับเข้า</div>
+    </div></div>
+    <div class="col-md-4"><div class="card text-center p-2 border-0 bg-danger bg-opacity-10">
+      <div class="text-danger fw-bold">${totalOut.toLocaleString('th-TH')} ฿</div><div class="text-muted small">มูลค่าจ่ายออก</div>
+    </div></div>
+    <div class="col-md-4"><div class="card text-center p-2 border-0 bg-info bg-opacity-10">
+      <div class="text-info fw-bold">${rowCount}</div><div class="text-muted small">รายการทั้งหมด</div>
+    </div></div>
+  `);
+
+  // Group by branch
+  const byBranch = {};
+  data.forEach(s => {
+    const b = s.deliveryLocation || 'สำนักงานใหญ่';
+    if (!byBranch[b]) byBranch[b] = [];
+    byBranch[b].push(s);
+  });
+
+  let html = '';
+  Object.keys(byBranch).sort().forEach(branch => {
+    const rows = byBranch[branch];
+    const subtotal = rows.reduce((s,r) => s + parseFloat(r.itemQuantity||0)*parseFloat(r.unitPrice||0), 0);
+    html += `<h6 class="fw-bold mt-3 border-bottom pb-1"><i class="fas fa-building me-1"></i>${branch} <span class="badge bg-secondary ms-2">${rows.length} รายการ</span></h6>`;
+    html += `<table class="table table-sm table-hover mb-1"><thead class="table-light"><tr>
+      <th>วันที่</th><th>ชื่อสินค้า</th><th>ประเภท</th><th class="text-end">จำนวน</th><th class="text-end">ราคา/หน่วย</th><th class="text-end">รวม</th>
+    </tr></thead><tbody>`;
+    rows.forEach(s => {
+      const qty = parseFloat(s.itemQuantity||0);
+      const price = parseFloat(s.unitPrice||0);
+      const total = qty * price;
+      const typeClass = s.actionType==='รับเข้า'||s.actionType==='ยอดยกมา' ? 'text-success' : 'text-danger';
+      html += `<tr>
+        <td class="text-nowrap">${s.date||s.rawDate||s.requestDate||'-'}</td>
+        <td>${s.itemName||'-'}</td>
+        <td><span class="badge ${s.actionType==='รับเข้า'?'bg-success':s.actionType==='จ่ายออก'?'bg-danger':'bg-secondary'}">${s.actionType||'-'}</span></td>
+        <td class="text-end">${qty.toLocaleString('th-TH')}</td>
+        <td class="text-end">${price.toLocaleString('th-TH')}</td>
+        <td class="text-end fw-bold ${typeClass}">${total.toLocaleString('th-TH')}</td>
+      </tr>`;
+    });
+    html += `</tbody><tfoot><tr class="table-warning fw-bold">
+      <td colspan="5" class="text-end">รวมสาขา ${branch}</td>
+      <td class="text-end">${subtotal.toLocaleString('th-TH')} ฿</td>
+    </tr></tfoot></table>`;
+  });
+
+  $('#srTableContainer').html(html || '<div class="text-center text-muted py-4">ไม่พบข้อมูล</div>');
+
+  // Update print meta
+  const filters = [];
+  if ($('#srBranchFilter').val()) filters.push($('#srBranchFilter option:selected').text());
+  if ($('#srMonthFilter').val()) filters.push($('#srMonthFilter option:selected').text());
+  $('#srPrintMeta').text(`วันที่พิมพ์: ${new Date().toLocaleDateString('th-TH')} | ${filters.length ? filters.join(' | ') : 'ทุกสาขา ทุกเดือน'}`);
+};
+
+window.printSupplyReport = function() {
+  window.print();
+};
+// ==================== END SUPPLY REPORT ====================
 </script>
+
+<!-- Supply Report Modal -->
+<div id="supplyReportModal" class="modal fade" tabindex="-1">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header bg-secondary text-white d-print-none">
+        <h5 class="modal-title"><i class="fas fa-boxes me-2"></i>รายงานวัสดุ / สินค้าคงเหลือ</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <!-- Print Header (hidden until print) -->
+        <div class="d-none d-print-block text-center mb-3">
+          <h4 class="fw-bold">รายงานวัสดุ / สินค้าคงเหลือ</h4>
+          <div id="srPrintMeta" class="text-muted small"></div>
+        </div>
+        <!-- Filters (hidden on print) -->
+        <div class="row g-2 mb-3 d-print-none">
+          <div class="col-md-3">
+            <select id="srBranchFilter" class="form-select form-select-sm" onchange="renderSupplyReport()">
+              <option value="">ทุกสาขา</option>
+            </select>
+          </div>
+          <div class="col-md-3">
+            <select id="srMonthFilter" class="form-select form-select-sm" onchange="renderSupplyReport()">
+              <option value="">ทุกเดือน</option>
+            </select>
+          </div>
+          <div class="col-md-3">
+            <select id="srTypeFilter" class="form-select form-select-sm" onchange="renderSupplyReport()">
+              <option value="">ทุกประเภท</option>
+              <option value="รับเข้า">รับเข้า</option>
+              <option value="จ่ายออก">จ่ายออก</option>
+              <option value="ยอดยกมา">ยอดยกมา</option>
+            </select>
+          </div>
+          <div class="col-md-3">
+            <input type="text" id="srSearch" class="form-control form-control-sm" placeholder="ค้นหาชื่อสินค้า..." oninput="renderSupplyReport()">
+          </div>
+        </div>
+        <!-- KPI Row -->
+        <div id="srKpiRow" class="row g-2 mb-3"></div>
+        <!-- Table -->
+        <div id="srTableContainer"></div>
+        <!-- Actions -->
+        <div class="d-flex gap-2 mt-3 d-print-none">
+          <button class="btn btn-outline-danger btn-sm" onclick="printSupplyReport()"><i class="fas fa-print me-1"></i>พิมพ์/PDF</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
 </body>
 </html>
