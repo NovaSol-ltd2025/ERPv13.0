@@ -79,6 +79,11 @@
       .modal-dialog { max-width: 100% !important; margin: 0 !important; }
       .modal-content { border: none !important; box-shadow: none !important; }
       .modal-body { padding: 0 !important; }
+      /* Supply Report print — make modal content visible */
+      #supplyReportModal, #supplyReportModal * { visibility: visible !important; }
+      #supplyReportModal { position: absolute; left: 0; top: 0; width: 100%; background: white; }
+      #supplyReportModal .modal-backdrop { display: none !important; }
+      #supplyReportModal .d-print-none { display: none !important; visibility: hidden !important; }
     }
   </style>
 </head>
@@ -4059,7 +4064,17 @@ window.renderSupplyReport = function() {
 };
 
 window.printSupplyReport = function() {
-  window.print();
+  // Update print meta
+  const filters = [];
+  if ($('#srBranchFilter').val()) filters.push($('#srBranchFilter option:selected').text());
+  if ($('#srMonthFilter').val()) filters.push($('#srMonthFilter option:selected').text());
+  $('#srPrintMeta').text(`วันที่พิมพ์: ${new Date().toLocaleDateString('th-TH', {year:'numeric',month:'long',day:'numeric'})} | ${filters.length ? filters.join(' | ') : 'ทุกสาขา ทุกเดือน'}`);
+  // Show header before print, hide after
+  $('#srPrintHeader').show();
+  setTimeout(() => {
+    window.print();
+    setTimeout(() => $('#srPrintHeader').hide(), 500);
+  }, 100);
 };
 // ==================== END SUPPLY REPORT ====================
 </script>
@@ -4074,9 +4089,11 @@ window.printSupplyReport = function() {
       </div>
       <div class="modal-body">
         <!-- Print Header (hidden until print) -->
-        <div class="d-none d-print-block text-center mb-3">
-          <h4 class="fw-bold">รายงานวัสดุ / สินค้าคงเหลือ</h4>
+        <div id="srPrintHeader" style="display:none;" class="text-center mb-3">
+          <h4 class="fw-bold">บริษัท โนวาโซล จำกัด</h4>
+          <h5>รายงานวัสดุ / สินค้าคงเหลือ</h5>
           <div id="srPrintMeta" class="text-muted small"></div>
+          <hr>
         </div>
         <!-- Filters (hidden on print) -->
         <div class="row g-2 mb-3 d-print-none">
